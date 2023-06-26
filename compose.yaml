@@ -1,0 +1,86 @@
+version: "3.4"
+
+services:
+  db:
+    container_name: social-network-backend-db
+    image: postgis/postgis
+    restart: always
+    env_file:
+      - .env
+    healthcheck:
+      test: [ "CMD", "pg_isready" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis
+    restart: always
+    healthcheck:
+      test: [ "CMD", "redis-cli", "--raw", "incr", "ping" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  celery_worker:
+    build: .
+    restart: always
+    entrypoint: celery -A social_network_backend worker --loglevel=info
+    healthcheck:
+      test: [ "CMD-SHELL", "celery -A social_network_backend inspect ping" ]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    volumes:
+      - .:/backend
+    env_file:
+      - .env
+    depends_on:
+      redis:
+        condition: service_healthy
+
+  web:
+    container_name: social-network-backend-web
+    build:
+      context: .
+      target: web
+    volumes:
+      - .:/backend
+    ports:
+      - "8000:8000"
+    env_file:
+      - .env
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      celery_worker:
+        condition: service_healthy
+
+  test-db:
+    container_name: social-network-backend-test-db
+    image: postgis/postgis
+    restart: always
+    env_file:
+      - .env
+    healthcheck:
+      test: [ "CMD", "pg_isready" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  tests:
+    container_name: social-network-backend-tests
+    build:
+      context: .
+      target: tests
+    env_file:
+      - .env
+    depends_on:
+      test-db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      celery_worker:
+        condition: service_healthy
